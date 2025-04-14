@@ -1,0 +1,7 @@
+This text file contains link to the google forms that were created
+for the realization of the requirement gathering process.
+
+Google form survey link: https://forms.gle/vY3i97gdWBcVXYWC6
+
+Google form link for survey that were manually conducted: https://docs.google.com/forms/d/e/1FAIpQLSevGRdx-4_pEl3iOvpgrKd0qWtVLKeGXbeRbHHjcHUWFDsU7A/viewform?usp=sharing
+Note that when they were collected, they were digitalized using a google form.
