@@ -1,14 +1,19 @@
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
-import 'welcome.dart';
-import 'signup.dart';
-import 'login.dart';
-import 'permission.dart';
-import 'home.dart';
-import 'my_activity.dart';
-import 'settings.dart';
+import 'frontend/welcome.dart';
+import 'frontend/signup.dart';
+import 'frontend/login.dart';
+import 'frontend/permission.dart';
+import 'frontend/home.dart';
+import 'frontend/my_activity.dart';
+import 'frontend/settings.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'firebase_options.dart';
 
-void main() {
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await Firebase.initializeApp(
+    options: DefaultFirebaseOptions.currentPlatform,
+  );
   runApp(ImproveConnectApp());
 }
 
@@ -29,6 +34,7 @@ class ImproveConnectApp extends StatelessWidget {
         '/permission': (context) => PermissionPage(),
         '/home': (context) => HomePage(),
         '/my_activity': (context) => MyActivityScreen(),
+        '/settings':(context) => SettingsScreen(),
       },
     );
   }
