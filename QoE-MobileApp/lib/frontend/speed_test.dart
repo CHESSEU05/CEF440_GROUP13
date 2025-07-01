@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'dart:async';
-import 'dart:math';
+import 'dart:io';
+import 'dart:typed_data';
+import 'package:http/http.dart' as http;
 
 // Light theme color palette (reusing from previous example)
 const Color primaryColor = Color(0xFF4A90E2);
@@ -13,7 +15,7 @@ const Color subtleTextColor = Color(0xFF6D7A8D);
 const Color errorColor = Color(0xFFE53935);
 const Color successColor = Color(0xFF43A047);
 const Color borderColor = Color(0xFFE0E0E0);
-const Color accentColor = Color(0xFF00BCD4); // Example accent color
+const Color accentColor = Color(0xFF00BCD4);
 
 class SpeedTestDialog extends StatefulWidget {
   @override
@@ -23,8 +25,15 @@ class SpeedTestDialog extends StatefulWidget {
 class _SpeedTestDialogState extends State<SpeedTestDialog> {
   double _downloadSpeed = 0.0;
   double _uploadSpeed = 0.0;
+  double _ping = 0.0;
   String _connectionQuality = 'Testing...';
   bool _isTesting = false;
+  String _currentTest = '';
+
+  // Test URLs - you can replace these with your preferred test servers
+  static const String downloadTestUrl = 'http://speed.hetzner.de/100MB.bin';
+  static const String uploadTestUrl = 'http://httpbin.org/post';
+  static const String pingTestUrl = 'http://httpbin.org/get';
 
   @override
   void initState() {
@@ -37,31 +46,135 @@ class _SpeedTestDialogState extends State<SpeedTestDialog> {
       _isTesting = true;
       _downloadSpeed = 0.0;
       _uploadSpeed = 0.0;
+      _ping = 0.0;
       _connectionQuality = 'Testing...';
     });
 
-    // Simulate download test
-    await Future.delayed(Duration(seconds: 2));
-    final randomDownload = Random().nextDouble() * 50; // Simulate up to 50 Mbps
+    try {
+      // Test ping first
+      await _testPing();
+
+      // Test download speed
+      await _testDownloadSpeed();
+
+      // Test upload speed
+      await _testUploadSpeed();
+
+      // Determine connection quality
+      _determineConnectionQuality();
+    } catch (e) {
+      setState(() {
+        _connectionQuality = 'Error: ${e.toString()}';
+        _isTesting = false;
+      });
+    }
+  }
+
+  Future<void> _testPing() async {
     setState(() {
-      _downloadSpeed = double.parse(randomDownload.toStringAsFixed(2));
+      _currentTest = 'Testing ping...';
     });
 
-    await Future.delayed(Duration(seconds: 1));
+    try {
+      final stopwatch = Stopwatch()..start();
+      final response = await http.get(
+        Uri.parse(pingTestUrl),
+      ).timeout(Duration(seconds: 10));
 
-    // Simulate upload test
-    final randomUpload = Random().nextDouble() * 20; // Simulate up to 20 Mbps
+      stopwatch.stop();
+
+      if (response.statusCode == 200) {
+        setState(() {
+          _ping = stopwatch.elapsedMilliseconds.toDouble();
+        });
+      }
+    } catch (e) {
+      setState(() {
+        _ping = -1; // Indicate ping test failed
+      });
+    }
+  }
+
+  Future<void> _testDownloadSpeed() async {
     setState(() {
-      _uploadSpeed = double.parse(randomUpload.toStringAsFixed(2));
+      _currentTest = 'Testing download speed...';
     });
 
-    // Determine connection quality (simplified)
+    try {
+      final stopwatch = Stopwatch()..start();
+
+      final response = await http.get(
+        Uri.parse(downloadTestUrl),
+      ).timeout(Duration(seconds: 30));
+
+      stopwatch.stop();
+
+      if (response.statusCode == 200) {
+        final bytes = response.bodyBytes.length;
+        final seconds = stopwatch.elapsedMilliseconds / 1000.0;
+        final bitsPerSecond = (bytes * 8) / seconds;
+        final mbps = bitsPerSecond / (1024);
+
+        setState(() {
+          _downloadSpeed = double.parse(mbps.toStringAsFixed(2));
+        });
+      }
+    } catch (e) {
+      setState(() {
+        _downloadSpeed = -1; // Indicate download test failed
+      });
+    }
+  }
+
+  Future<void> _testUploadSpeed() async {
+    setState(() {
+      _currentTest = 'Testing upload speed...';
+    });
+
+    try {
+      // Create test data (1MB)
+      final testData = Uint8List(1024 * 1024);
+      for (int i = 0; i < testData.length; i++) {
+        testData[i] = i % 256;
+      }
+
+      final stopwatch = Stopwatch()..start();
+
+      final response = await http.post(
+        Uri.parse(uploadTestUrl),
+        body: testData,
+        headers: {'Content-Type': 'application/octet-stream'},
+      ).timeout(Duration(seconds: 30));
+
+      stopwatch.stop();
+
+      if (response.statusCode == 200) {
+        final bytes = testData.length;
+        final seconds = stopwatch.elapsedMilliseconds / 1000.0;
+        final bitsPerSecond = (bytes * 8) / seconds;
+        final mbps = bitsPerSecond / (1024 * 1024);
+
+        setState(() {
+          _uploadSpeed = double.parse(mbps.toStringAsFixed(2));
+        });
+      }
+    } catch (e) {
+      setState(() {
+        _uploadSpeed = -1; // Indicate upload test failed
+      });
+    }
+  }
+
+  void _determineConnectionQuality() {
     String quality;
-    if (_downloadSpeed > 30 && _uploadSpeed > 10) {
+
+    if (_downloadSpeed < 0 || _uploadSpeed < 0) {
+      quality = 'Test Failed';
+    } else if (_downloadSpeed > 30 && _uploadSpeed > 10 && _ping < 50) {
       quality = 'Excellent';
-    } else if (_downloadSpeed > 15 && _uploadSpeed > 5) {
+    } else if (_downloadSpeed > 15 && _uploadSpeed > 5 && _ping < 100) {
       quality = 'Good';
-    } else if (_downloadSpeed > 5 && _uploadSpeed > 2) {
+    } else if (_downloadSpeed > 5 && _uploadSpeed > 2 && _ping < 200) {
       quality = 'Fair';
     } else {
       quality = 'Poor';
@@ -70,10 +183,15 @@ class _SpeedTestDialogState extends State<SpeedTestDialog> {
     setState(() {
       _connectionQuality = quality;
       _isTesting = false;
+      _currentTest = '';
     });
   }
 
-  Widget _buildSpeedIndicator({required String title, required double speed, required String unit}) {
+  Widget _buildSpeedIndicator({
+    required String title,
+    required double speed,
+    required String unit,
+  }) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -86,11 +204,11 @@ class _SpeedTestDialogState extends State<SpeedTestDialog> {
         ),
         SizedBox(height: 4),
         Text(
-          '${speed.toStringAsFixed(2)} $unit',
+          speed < 0 ? 'Failed' : '${speed.toStringAsFixed(2)} $unit',
           style: GoogleFonts.notoSans(
             fontSize: 20,
             fontWeight: FontWeight.w600,
-            color: textColor,
+            color: speed < 0 ? errorColor : textColor,
           ),
         ),
       ],
@@ -135,17 +253,32 @@ class _SpeedTestDialogState extends State<SpeedTestDialog> {
                 ),
                 SizedBox(height: 16),
                 Text(
-                  'Testing your connection...',
+                  _currentTest.isEmpty ? 'Initializing test...' : _currentTest,
                   style: GoogleFonts.notoSans(color: subtleTextColor),
+                  textAlign: TextAlign.center,
                 ),
               ],
             )
                 : Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                _buildSpeedIndicator(title: 'Download Speed', speed: _downloadSpeed, unit: 'Mbps'),
+                _buildSpeedIndicator(
+                    title: 'Download Speed',
+                    speed: _downloadSpeed,
+                    unit: 'kbps'
+                ),
                 SizedBox(height: 16),
-                _buildSpeedIndicator(title: 'Upload Speed', speed: _uploadSpeed, unit: 'Mbps'),
+                _buildSpeedIndicator(
+                    title: 'Upload Speed',
+                    speed: _uploadSpeed,
+                    unit: 'Mbps'
+                ),
+                SizedBox(height: 16),
+                _buildSpeedIndicator(
+                    title: 'Ping',
+                    speed: _ping,
+                    unit: 'ms'
+                ),
                 SizedBox(height: 24),
                 Text(
                   'Connection Quality:',
@@ -161,7 +294,7 @@ class _SpeedTestDialogState extends State<SpeedTestDialog> {
                   style: GoogleFonts.notoSans(
                     color: _connectionQuality == 'Excellent'
                         ? successColor
-                        : _connectionQuality == 'Poor'
+                        : _connectionQuality == 'Poor' || _connectionQuality.contains('Failed')
                         ? errorColor
                         : accentColor,
                     fontSize: 18,
@@ -182,9 +315,9 @@ class _SpeedTestDialogState extends State<SpeedTestDialog> {
                       elevation: 0,
                       shadowColor: Colors.transparent,
                     ),
-                    onPressed: _startSpeedTest,
+                    onPressed: _isTesting ? null : _startSpeedTest,
                     child: Text(
-                      'Test Again',
+                      _isTesting ? 'Testing...' : 'Test Again',
                       style: GoogleFonts.notoSans(
                         fontSize: 16,
                         fontWeight: FontWeight.w600,

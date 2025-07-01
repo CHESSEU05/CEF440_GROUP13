@@ -48,7 +48,7 @@ dependencies:
   device_info_plus: ^11.4.0
 
   # Network Connectivity (for checking internet status)
-  connectivity_plus: ^6.0.2 # To check if device is online/offline
+  connectivity_plus: ^5.0.2 # To check if device is online/offline
 
   # Network Info (to get network details like carrier, signal strength)
   # Note: This package might require specific native permissions/setup for full functionality.

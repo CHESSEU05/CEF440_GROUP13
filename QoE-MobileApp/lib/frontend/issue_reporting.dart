@@ -3,6 +3,9 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:connectivity_plus/connectivity_plus.dart';
+import 'package:http/http.dart' as http;
+import 'dart:math';
 
 // Light theme color palette
 const Color primaryColor = Color(0xFF4A90E2);
@@ -14,6 +17,188 @@ const Color subtleTextColor = Color(0xFF6D7A8D);
 const Color errorColor = Color(0xFFE53935);
 const Color successColor = Color(0xFF43A047);
 const Color borderColor = Color(0xFFE0E0E0);
+
+class NetworkMetrics {
+  final double jitter;
+  final String networkType;
+  final String signalStrength;
+  final double packetLoss;
+  final double bandwidth;
+  final double latency;
+  final DateTime timestamp;
+
+  NetworkMetrics({
+    required this.jitter,
+    required this.networkType,
+    required this.signalStrength,
+    required this.packetLoss,
+    required this.bandwidth,
+    required this.latency,
+    required this.timestamp,
+  });
+
+  Map<String, dynamic> toJson() {
+    return {
+      'jitter': jitter,
+      'networkType': networkType,
+      'signalStrength': signalStrength,
+      'packetLoss': packetLoss,
+      'bandwidth': bandwidth,
+      'latency': latency,
+      'timestamp': timestamp.toIso8601String(),
+    };
+  }
+}
+
+class NetworkMonitoringService {
+  static const String testUrl = 'http://httpbin.org/get';
+  static const String speedTestUrl = 'http://httpbin.org/get';
+  static const int pingCount = 3;
+
+  static Future<NetworkMetrics> getCurrentMetrics() async {
+    try {
+      // Get connectivity info
+      final connectivity = Connectivity();
+      final connectivityResult = await connectivity.checkConnectivity();
+
+      // Test latency with multiple pings
+      List<double> latencies = [];
+      for (int i = 0; i < pingCount; i++) {
+        final latency = await _measureLatency();
+        if (latency > 0) latencies.add(latency);
+        if (i < pingCount - 1) await Future.delayed(Duration(milliseconds: 100));
+      }
+
+      // Calculate jitter (variation in latency)
+      double jitter = 0.0;
+      double avgLatency = 0.0;
+      if (latencies.isNotEmpty) {
+        avgLatency = latencies.reduce((a, b) => a + b) / latencies.length;
+        if (latencies.length > 1) {
+          double variance = latencies
+              .map((l) => (l - avgLatency) * (l - avgLatency))
+              .reduce((a, b) => a + b) / latencies.length;
+          jitter = sqrt(variance);
+        }
+      }
+
+      // Test bandwidth
+      final bandwidth = await _measureBandwidth();
+
+      // Measure packet loss (requires more advanced techniques)
+      // For a more accurate implementation, consider using platform-specific APIs
+      // or sending ICMP packets. This example still simulates it.
+      final packetLoss = _simulatePacketLoss();
+
+      // Get signal strength (requires platform-specific implementation)
+      // Consider using plugins like flutter_sim_card or network_info_plus for more accurate results.
+      final signalStrength = await _getSignalStrength(connectivityResult);
+
+      return NetworkMetrics(
+        jitter: double.parse(jitter.toStringAsFixed(1)),
+        networkType: _getNetworkTypeString(connectivityResult),
+        signalStrength: signalStrength,
+        packetLoss: packetLoss,
+        bandwidth: bandwidth,
+        latency: avgLatency > 0 ? double.parse(avgLatency.toStringAsFixed(0)) : 0,
+        timestamp: DateTime.now(),
+      );
+    } catch (e) {
+      // Return default values on error
+      return NetworkMetrics(
+        jitter: 0.0,
+        networkType: 'Unknown',
+        signalStrength: 'N/A',
+        packetLoss: 0.0,
+        bandwidth: 0.0,
+        latency: 0.0,
+        timestamp: DateTime.now(),
+      );
+    }
+  }
+
+  static Future<double> _measureLatency() async {
+    try {
+      final stopwatch = Stopwatch()..start();
+      final response = await http.get(
+        Uri.parse(testUrl),
+      ).timeout(Duration(seconds: 5));
+      stopwatch.stop();
+
+      if (response.statusCode == 200) {
+        return stopwatch.elapsedMilliseconds.toDouble();
+      }
+    } catch (e) {
+      // Handle timeout or network errors
+    }
+    return 0.0;
+  }
+
+  static Future<double> _measureBandwidth() async {
+    try {
+      final stopwatch = Stopwatch()..start();
+      final response = await http.get(
+        Uri.parse(speedTestUrl),
+      ).timeout(Duration(seconds: 10));
+      stopwatch.stop();
+
+      if (response.statusCode == 200) {
+        final bytes = response.bodyBytes.length;
+        final seconds = stopwatch.elapsedMilliseconds / 1000.0;
+        final bitsPerSecond = (bytes * 8) / seconds;
+        final kbps = bitsPerSecond / 1000;
+        return double.parse(kbps.toStringAsFixed(0));
+      }
+    } catch (e) {
+      // Handle errors
+    }
+    return 0.0;
+  }
+
+  static String _getNetworkTypeString(ConnectivityResult result) {
+    switch (result) {
+      case ConnectivityResult.wifi:
+        return 'WiFi';
+      case ConnectivityResult.mobile:
+      // More detailed mobile network type detection usually requires platform-specific code.
+        return 'Mobile';
+      case ConnectivityResult.ethernet:
+        return 'Ethernet';
+      case ConnectivityResult.bluetooth:
+        return 'Bluetooth';
+      default:
+        return 'No Connection';
+    }
+  }
+
+  static Future<String> _getSignalStrength(ConnectivityResult result) async {
+    // This is a placeholder as getting accurate signal strength requires
+    // platform-specific implementations. You might need to use plugins like:
+    // - `flutter_sim_card` (for mobile signal strength)
+    // - `network_info_plus` (can provide Wi-Fi signal strength on some platforms)
+
+    // For now, we will simulate based on the connection type.
+    if (result == ConnectivityResult.wifi) {
+      final random = Random();
+      final strength = -30 - random.nextInt(40); // Simulate Wi-Fi strength
+      return '${strength} dBm';
+    } else if (result == ConnectivityResult.mobile) {
+      final random = Random();
+      final strength = -50 - random.nextInt(50); // Simulate mobile strength
+      return '${strength} dBm';
+    } else {
+      return 'N/A';
+    }
+  }
+
+  static double _simulatePacketLoss() {
+    // For a real implementation, you would typically send multiple packets
+    // and check how many are lost. This often involves using the `ping` command
+    // or platform-specific network APIs.
+    final random = Random();
+    return double.parse((random.nextDouble() * 2).toStringAsFixed(1));
+  }
+}
 
 class IssueReportingFormDialog extends StatefulWidget {
   @override
@@ -32,6 +217,7 @@ class _IssueReportingFormDialogState extends State<IssueReportingFormDialog> {
   String? _selectedActivity;
   bool _isSubmitting = false;
   Position? _currentPosition;
+  NetworkMetrics? _networkMetrics;
 
   final List<String> _operators = ['MTN', 'ORANGE', 'CAMTEL', 'Nexttel'];
   final List<String> _issueTypes = ['No Service', 'Poor Signal', 'Slow Internet Speed', 'Call Drop', 'Others'];
@@ -41,7 +227,7 @@ class _IssueReportingFormDialogState extends State<IssueReportingFormDialog> {
     'Online Gaming',
     'Messaging (WhatsApp, SMS...)',
     'Online Work (Zoom, Google Meet...)',
-    'Web Browsing',
+    'Web Browse',
     'Others'
   ];
 
@@ -51,18 +237,14 @@ class _IssueReportingFormDialogState extends State<IssueReportingFormDialog> {
     _getCurrentLocation();
   }
 
-  /// Gets the current location of the user
-  /// This will be attached to the issue report for location-based analysis
   Future<void> _getCurrentLocation() async {
     try {
-      // Check if location services are enabled
       bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
       if (!serviceEnabled) {
         print('Location services are disabled.');
         return;
       }
 
-      // Check location permissions
       LocationPermission permission = await Geolocator.checkPermission();
       if (permission == LocationPermission.denied) {
         permission = await Geolocator.requestPermission();
@@ -77,7 +259,6 @@ class _IssueReportingFormDialogState extends State<IssueReportingFormDialog> {
         return;
       }
 
-      // Get current position
       _currentPosition = await Geolocator.getCurrentPosition(
         desiredAccuracy: LocationAccuracy.high,
       );
@@ -86,8 +267,6 @@ class _IssueReportingFormDialogState extends State<IssueReportingFormDialog> {
     }
   }
 
-  /// Submits the issue report to Firestore
-  /// Creates a new document in the 'userIssues' collection
   Future<void> _submitIssueReport() async {
     if (!_formKey.currentState!.validate()) return;
 
@@ -96,15 +275,25 @@ class _IssueReportingFormDialogState extends State<IssueReportingFormDialog> {
     });
 
     try {
-      // Save form state
       _formKey.currentState!.save();
 
-      // Get current user ID (you might need to implement authentication)
+      // Fetch current network metrics
+      _networkMetrics = await NetworkMonitoringService.getCurrentMetrics();
+
+      // Get current user ID from Firebase Auth
       String userId = _auth.currentUser?.uid ?? 'anonymous_user';
 
-      // Prepare issue report data
+      // In a real application, you might fetch more user details from your database
+      // using this userId. For example:
+      // DocumentSnapshot userDoc = await _firestore.collection('users').doc(userId).get();
+      // String? userName = userDoc.data()?['name'];
+      // String? userEmail = userDoc.data()?['email'];
+
       Map<String, dynamic> issueData = {
         'userId': userId,
+        // You can add other user details fetched from your database here
+        // 'userName': userName,
+        // 'userEmail': userEmail,
         'timestamp': FieldValue.serverTimestamp(),
         'networkOperator': _selectedOperator,
         'issueType': _selectedIssueType,
@@ -119,15 +308,14 @@ class _IssueReportingFormDialogState extends State<IssueReportingFormDialog> {
           'platform': 'mobile', // You can get more detailed device info if needed
           'appVersion': '1.0.0', // Replace with actual app version
         },
-        'status': 'reported', // Can be 'reported', 'investigating', 'resolved'
-        'priority': _calculatePriority(), // Auto-calculate based on issue type
+        'networkMetrics': _networkMetrics?.toJson(), // Attach network metrics
+        'status': 'reported',
+        'priority': _calculatePriority(),
         'submissionSource': 'issue_report_form',
       };
 
-      // Submit to Firestore
       await _firestore.collection('userIssues').add(issueData);
 
-      // Close dialog and show success message
       Navigator.of(context).pop();
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -139,7 +327,6 @@ class _IssueReportingFormDialogState extends State<IssueReportingFormDialog> {
           ),
         ),
       );
-
     } catch (e) {
       print('Error submitting issue report: $e');
       ScaffoldMessenger.of(context).showSnackBar(
@@ -159,8 +346,6 @@ class _IssueReportingFormDialogState extends State<IssueReportingFormDialog> {
     }
   }
 
-  /// Calculate priority based on issue type
-  /// This helps in prioritizing which issues to address first
   String _calculatePriority() {
     switch (_selectedIssueType) {
       case 'No Service':
